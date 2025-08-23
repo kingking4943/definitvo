@@ -1,37 +1,44 @@
-name: Compila Gestionale Gitemania per Windows (Modalita Cartella Veloce)
+# Nome del processo che vedrai su GitHub
+name: Compila Gestionale Gitemania per Windows
 
+# Quando eseguire questo processo: ad ogni 'push' sul repository
 on: [push]
 
 jobs:
   build-windows-exe:
+    # Usa l'ultima versione di Windows disponibile su GitHub
     runs-on: windows-latest
 
     steps:
+      # 1. Scarica il codice del tuo repository
       - name: Checkout del codice
         uses: actions/checkout@v4
 
+      # 2. Imposta l'ambiente Python
       - name: Setup Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
+      # 3. Installa tutte le dipendenze necessarie
       - name: Installa le dipendenze
         env:
           PYTHONUTF8: "1"
         run: |
           python -m pip install --upgrade pip
+          pip install pyinstaller
           pip install -r requirements.txt
         shell: cmd
 
-      - name: Compila l'eseguibile (modalita cartella)
-        env:
-          PYTHONUTF8: "1"
+      # 4. --- COMANDO DI COMPILAZIONE DIRETTO E CORRETTO ---
+      - name: Compila l'eseguibile con PyInstaller
         run: |
-          python setup.py build
+          pyinstaller --noconfirm --onedir --windowed --name "GestionaleGitemania" --icon "assets/icon.ico" --add-data "assets;assets" gestionale_gitemania.py
         shell: cmd
 
+      # 5. Carica il risultato finale come "artefatto" scaricabile
       - name: Upload della cartella compilata
         uses: actions/upload-artifact@v4
         with:
-          name: GestionaleGitemania-Windows-Cartella
-          path: dist/GestionaleGitemania/ # <-- MODIFICA: Carica la cartella principale
+          name: GestionaleGitemania-Windows
+          path: dist/GestionaleGitemania/
