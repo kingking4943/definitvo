@@ -9,6 +9,7 @@ Sviluppato da TechExpresso
 import os, csv, json, schedule, threading, time
 from datetime import datetime
 from typing import Dict, List
+
 from config import config
 
 class ExportResult:
@@ -65,7 +66,7 @@ class ExportManager:
         try:
             final_filters = filters if filters else None
             
-            print("\n--- AVVIO EXPORT ---")
+            print("\n--- AVVIO EXPORT ORDINI ---")
             print("DEBUG: Export richiesto con i seguenti filtri:", final_filters)
             
             orders = self.database_manager.get_orders(final_filters)
@@ -106,10 +107,46 @@ class ExportManager:
                 writer = csv.DictWriter(csvfile, fieldnames=fieldnames); writer.writeheader(); writer.writerows(rows_to_write)
                 
             result = ExportResult(success=True, file_name=filename, file_path=file_path, total_records=len(rows_to_write))
-            if self.on_export_complete: self.on_export_complete(result)
-            print("--- EXPORT COMPLETATO ---")
+            if self.on_export_complete: self.on_export_complete(result, "OrderExport")
+            print("--- EXPORT ORDINI COMPLETATO ---")
 
         except Exception as e:
-            error_msg = f"Errore durante l'export CSV: {e}"
+            error_msg = f"Errore durante l'export CSV degli ordini: {e}"
             result = ExportResult(success=False, error_message=error_msg)
-            if self.on_export_complete: self.on_export_complete(result)
+            if self.on_export_complete: self.on_export_complete(result, "OrderExport")
+
+    def export_customer_list_csv(self, customers: List[Dict], product_name: str):
+        """Esporta una lista di clienti per un prodotto in formato CSV."""
+        try:
+            if not customers:
+                result = ExportResult(success=False, error_message="Nessun cliente da esportare.")
+                if self.on_export_complete: self.on_export_complete(result, "CustomerExport")
+                return
+
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            safe_product_name = "".join([c if c.isalnum() else "_" for c in product_name])
+            filename = f"clienti_{safe_product_name}_{timestamp}.csv"
+            file_path = os.path.join(self.exports_dir, filename)
+
+            fieldnames = ['Nome Cliente', 'Email', 'Telefono', 'Acquisti', 'Totale Speso', 'Ultimo Acquisto']
+            
+            with open(file_path, 'w', newline='', encoding='utf-8-sig') as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                writer.writeheader()
+                for customer in customers:
+                    writer.writerow({
+                        'Nome Cliente': customer['customer_name'],
+                        'Email': customer['customer_email'],
+                        'Telefono': customer.get('customer_phone', ''),
+                        'Acquisti': customer['total_purchases'],
+                        'Totale Speso': f"{customer['total_spent']:.2f}",
+                        'Ultimo Acquisto': customer['last_purchase']
+                    })
+            
+            result = ExportResult(success=True, file_name=filename, file_path=file_path, total_records=len(customers))
+            if self.on_export_complete: self.on_export_complete(result, "CustomerExport")
+
+        except Exception as e:
+            error_msg = f"Errore durante l'export CSV dei clienti: {e}"
+            result = ExportResult(success=False, error_message=error_msg)
+            if self.on_export_complete: self.on_export_complete(result, "CustomerExport")
