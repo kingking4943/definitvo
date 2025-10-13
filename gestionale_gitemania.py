@@ -6,6 +6,8 @@ Gestionale Gitemania - Applicazione Desktop (Versione Finale Stabile e Real-time
 import sys, os, tkinter as tk, threading, queue
 from tkinter import ttk, messagebox
 from typing import Dict, List
+from collections import defaultdict
+
 from config import config
 from woocommerce_api import WooCommerceManager
 from database_manager import DatabaseManager
@@ -14,6 +16,7 @@ from theme_manager import GiteManiTheme
 from modern_components import ModernStatusBar, ModernOrdersView
 from modern_dashboard import ModernDashboard
 from gui_components import SettingsPanel, AboutDialog, OrderDetailWindow
+from customer_list_view import CustomerListView
 
 class GestionaleGitemania:
     def __init__(self):
@@ -54,13 +57,19 @@ class GestionaleGitemania:
                     self.status_bar.set_status(f"Sincronizzazione recente completata: {inserted} nuovi, {updated} aggiornati.")
                     self._refresh_orders_view()
                 elif msg_type == "export_complete":
-                    success, result_data = data
+                    success, result_data, export_type = data
                     if success:
                         messagebox.showinfo("Export Completato", f"File '{result_data['file_name']}' esportato con successo!\nSalvataggio in: {result_data['file_path']}")
                         self.status_bar.set_status(f"Export di {result_data['total_records']} record completato.")
                     else:
                         messagebox.showerror("Errore Export", f"Errore durante l'esportazione:\n{result_data['error_message']}")
                         self.status_bar.set_status("Errore durante l'export.")
+                elif msg_type == "products_loaded":
+                    self.customer_list_view.update_products_list(data)
+                    self.status_bar.set_status("Lista prodotti caricata.")
+                elif msg_type == "customer_list_updated":
+                    self.customer_list_view.update_customer_list(data)
+                    self.status_bar.set_status(f"Trovati {len(data)} clienti per il prodotto selezionato.")
                 elif msg_type == "error": 
                     messagebox.showerror("Errore", data)
                     self.status_bar.set_status(f"Errore: {data}")
@@ -102,7 +111,7 @@ class GestionaleGitemania:
         ttk.Button(toolbar, text="🔗 Connetti", style='Primary.TButton', command=self._connect_services).pack(side='left', padx=(0, 5))
         ttk.Button(toolbar, text="🔄 Sync Recenti", command=self._quick_sync).pack(side='left', padx=(0, 5))
         ttk.Button(toolbar, text="🔄 Sync Completo", style='Primary.TButton', command=self._force_sync).pack(side='left', padx=(0, 5))
-        ttk.Button(toolbar, text="📄 Esporta", style='Success.TButton', command=self._export_orders).pack(side='left', padx=(5, 0))
+        ttk.Button(toolbar, text="📄 Esporta Ordini", style='Success.TButton', command=self._export_orders).pack(side='left', padx=(5, 0))
         self.connection_info_frame = ttk.Frame(toolbar); self.connection_info_frame.pack(side='left', padx=15)
         self.connection_indicator = ttk.Label(self.connection_info_frame, text="●", foreground=GiteManiTheme.COLORS['danger'], font=('Segoe UI', 12)); self.connection_indicator.pack(side='left')
         self.connection_info = ttk.Label(self.connection_info_frame, text="Disconnesso", font=GiteManiTheme.FONTS['default']); self.connection_info.pack(side='left', padx=5)
@@ -112,6 +121,8 @@ class GestionaleGitemania:
         self.notebook = ttk.Notebook(main_container, style='TNotebook'); self.notebook.pack(fill='both', expand=True)
         self.dashboard = ModernDashboard(self.notebook); self.notebook.add(self.dashboard, text="📊 Dashboard")
         self.orders_view = ModernOrdersView(self.notebook, on_filter_apply=self._apply_order_filters); self.notebook.add(self.orders_view, text="📋 Ordini")
+        self.customer_list_view = CustomerListView(self.notebook, on_filter_apply=self._fetch_customer_list, on_export=self._export_customer_list)
+        self.notebook.add(self.customer_list_view, text="👥 Liste Clienti")
         settings_panel = SettingsPanel(self.notebook, current_config=config.config, on_save=self._on_settings_saved, on_test=self._test_connections)
         self.notebook.add(settings_panel, text="⚙️ Impostazioni")
         
@@ -120,21 +131,31 @@ class GestionaleGitemania:
         elif config.get('woocommerce', 'base_url'): threading.Thread(target=self._connect_services, daemon=True).start()
         
     def _show_first_run_wizard(self):
-        if messagebox.askquestion("Benvenuto!", "Prima configurazione richiesta. Vuoi andare alle impostazioni?"): self.notebook.select(2)
+        if messagebox.askquestion("Benvenuto!", "Prima configurazione richiesta. Vuoi andare alle impostazioni?"): self.notebook.select(3)
         config.set('app', 'first_run', False); config.save_config()
         
     def _connect_services(self):
         self.queue.put(("update_status", "Connessione in corso..."))
         woo_url, key, secret = (config.get('woocommerce', 'base_url'), config.get_encrypted('woocommerce', 'consumer_key'), config.get_encrypted('woocommerce', 'consumer_secret'))
         if not all([woo_url, key, secret]):
-            self.queue.put(("error", "Configurazione WooCommerce mancante.")); self.notebook.select(2); return
+            self.queue.put(("error", "Configurazione WooCommerce mancante.")); self.notebook.select(3); return
         threading.Thread(target=self._perform_connection, args=(woo_url, key, secret), daemon=True).start()
         
     def _perform_connection(self, url, key, secret):
         if self.woo_manager.initialize(url, key, secret):
-            self.root.after(0, self._update_connection_status, True); self._start_sync(); self._load_initial_data_from_db()
+            self.root.after(0, self._update_connection_status, True)
+            self._start_sync()
+            self._load_initial_data_from_db()
+            self._load_products()
         else:
             self.root.after(0, self._update_connection_status, False); self.queue.put(("error", "Connessione a WooCommerce fallita."))
+
+    def _load_products(self):
+        self.queue.put(("update_status", "Caricamento prodotti..."))
+        def task():
+            products = self.woo_manager.get_all_products()
+            self.queue.put(("products_loaded", products))
+        threading.Thread(target=task, daemon=True).start()
             
     def _update_connection_status(self, is_connected: bool):
         if is_connected:
@@ -259,12 +280,70 @@ class GestionaleGitemania:
         current_filters = self._get_current_filters()
         threading.Thread(target=self.export_manager.export_orders_csv, args=(current_filters,), daemon=True).start()
         
-    def _on_export_complete(self, result):
+    def _on_export_complete(self, result, export_type):
         result_data = {'file_name': result.file_name, 'total_records': result.total_records, 'file_path': result.file_path, 'error_message': result.error_message}
-        self.queue.put(("export_complete", (result.success, result_data)))
+        self.queue.put(("export_complete", (result.success, result_data, export_type)))
         
     def _show_about(self): AboutDialog(self.root)
     
+    def _fetch_customer_list(self):
+        product_id = self.customer_list_view.get_selected_product_id()
+        if not product_id:
+            messagebox.showwarning("Selezione Prodotto", "Per favore, seleziona un prodotto dalla lista.")
+            return
+
+        date_from = self.customer_list_view.date_from_var.get().strip()
+        date_to = self.customer_list_view.date_to_var.get().strip()
+
+        self.queue.put(("update_status", f"Recupero ordini per il prodotto ID: {product_id}..."))
+
+        def task():
+            orders = self.woo_manager.get_orders_for_product(product_id, date_from, date_to)
+            if orders:
+                customers = self._aggregate_customer_data(orders)
+                self.queue.put(("customer_list_updated", customers))
+            else:
+                self.queue.put(("customer_list_updated", []))
+        
+        threading.Thread(target=task, daemon=True).start()
+
+    def _aggregate_customer_data(self, orders: List[Dict]) -> List[Dict]:
+        customer_agg = defaultdict(lambda: {
+            'total_purchases': 0,
+            'total_spent': 0.0,
+            'last_purchase': '1970-01-01T00:00:00',
+            'customer_name': '',
+            'customer_email': '',
+            'customer_phone': ''
+        })
+
+        for order in orders:
+            email = order.get('billing', {}).get('email', '').lower()
+            if not email:
+                continue
+
+            customer = customer_agg[email]
+            customer['total_purchases'] += 1
+            customer['total_spent'] += float(order.get('total', 0.0))
+
+            if order.get('date_created') > customer['last_purchase']:
+                customer['last_purchase'] = order.get('date_created')
+
+            if not customer['customer_name']:
+                customer['customer_name'] = f"{order.get('billing', {}).get('first_name', '')} {order.get('billing', {}).get('last_name', '')}".strip()
+            
+            if not customer['customer_phone']:
+                customer['customer_phone'] = order.get('billing', {}).get('phone', '')
+
+            customer['customer_email'] = email
+
+        sorted_customers = sorted(customer_agg.values(), key=lambda x: x['last_purchase'], reverse=True)
+        return sorted_customers
+
+    def _export_customer_list(self, customers: List[Dict], product_name: str):
+        self.queue.put(("update_status", f"Esportazione lista clienti per '{product_name}'..."))
+        threading.Thread(target=self.export_manager.export_customer_list_csv, args=(customers, product_name), daemon=True).start()
+
     def run(self): self.root.mainloop()
 
 if __name__ == "__main__":
