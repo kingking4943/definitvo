@@ -96,6 +96,72 @@ class WooCommerceManager:
         except Exception as e:
             print(f"❌ Eccezione grave in get_orders_paged (pagina {page}): {e}")
             return False
+            
+    def get_all_products(self) -> List[Dict]:
+        """Recupera tutti i prodotti da WooCommerce."""
+        if not self.api: return []
+        
+        all_products = []
+        page = 1
+        per_page = 100
+        
+        while True:
+            try:
+                params = {'per_page': per_page, 'page': page}
+                response = self.api.get('products', params=params)
+                response.raise_for_status()
+                products_page = response.json()
+                
+                if not products_page:
+                    break
+                
+                all_products.extend(products_page)
+                
+                if len(products_page) < per_page:
+                    break
+                
+                page += 1
+            except Exception as e:
+                print(f"❌ Errore recupero pagina {page} di prodotti: {e}")
+                break
+                
+        return all_products
+
+    def get_orders_for_product(self, product_id: int, date_from: str = None, date_to: str = None) -> List[Dict]:
+        """Recupera tutti gli ordini per un prodotto specifico, con filtri di data."""
+        if not self.api: return []
+        
+        all_orders = []
+        page = 1
+        per_page = 100
+        
+        params = {'product': product_id}
+        if date_from:
+            params['after'] = f"{date_from}T00:00:00"
+        if date_to:
+            params['before'] = f"{date_to}T23:59:59"
+
+        while True:
+            try:
+                current_params = {'per_page': per_page, 'page': page, **params}
+                response = self.api.get('orders', params=current_params)
+                response.raise_for_status()
+                orders_page = response.json()
+                
+                if not orders_page:
+                    break
+                
+                all_orders.extend(orders_page)
+                
+                if len(orders_page) < per_page:
+                    break
+                
+                page += 1
+            except Exception as e:
+                print(f"❌ Errore recupero ordini per prodotto {product_id}, pagina {page}: {e}")
+                break
+                
+        return all_orders
 
     def get_viaggiatori_for_order(self, order_id: int) -> Optional[List[Dict]]:
         """
