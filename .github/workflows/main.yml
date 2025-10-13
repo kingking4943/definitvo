@@ -1,8 +1,11 @@
 # Nome del processo che vedrai su GitHub
 name: Compila Gestionale Gitemania per Windows
 
-# Quando eseguire questo processo: ad ogni 'push' sul repository
-on: [push]
+# Quando eseguire questo processo: ad ogni 'push' e anche manualmente
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build-windows-exe:
