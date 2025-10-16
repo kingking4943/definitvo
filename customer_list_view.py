@@ -55,33 +55,31 @@ class CustomerListView(ttk.Frame):
         vsb.pack(side='right', fill='y')
         self.tree.pack(side='left', fill='both', expand=True)
         
-        # --- NUOVA BARRA DI SOMMA ---
+        # Barra di somma
         summary_frame = ttk.Frame(self, padding=(10, 5))
         summary_frame.pack(fill='x', side='bottom')
         self.total_spent_var = tk.StringVar(value="Totale Speso Lista: € 0,00")
         total_label = ttk.Label(summary_frame, textvariable=self.total_spent_var, font=GiteManiTheme.FONTS['subheading'])
         total_label.pack(side='right')
 
-
     def _create_filter_bar(self):
         filter_frame = ttk.Frame(self, padding=(10, 5))
         filter_frame.pack(fill='x')
 
+        # --- CAMPO DI RICERCA ---
         ttk.Label(filter_frame, text="Cerca Prodotto:").pack(side='left', padx=(0, 5))
-        
         self.product_search_var = tk.StringVar()
-        self.product_search_entry = ttk.Entry(filter_frame, textvariable=self.product_search_var, width=40)
-        self.product_search_entry.pack(side='left', padx=(0, 15))
-        
-        # Associa eventi per la ricerca
-        self.product_search_entry.bind('<KeyRelease>', self._on_product_search)
-        self.product_search_entry.bind('<FocusOut>', self._hide_search_results)
+        product_search_entry = ttk.Entry(filter_frame, textvariable=self.product_search_var, width=30)
+        product_search_entry.pack(side='left', padx=(0, 15))
+        product_search_entry.bind('<KeyRelease>', self._on_product_search)
 
-        # Lista per i risultati della ricerca
-        self.search_results_listbox = tk.Listbox(filter_frame, height=5, exportselection=False)
-        self.search_results_listbox.bind('<<ListboxSelect>>', self._on_product_select)
+        # --- MENU A TENDINA (FILTRATO) ---
+        ttk.Label(filter_frame, text="Prodotto:").pack(side='left', padx=(0, 5))
+        self.product_var = tk.StringVar()
+        self.product_combo = ttk.Combobox(filter_frame, textvariable=self.product_var, state="readonly", width=40)
+        self.product_combo.pack(side='left', padx=(0, 15))
 
-
+        # --- ALTRI FILTRI ---
         ttk.Label(filter_frame, text="Da:").pack(side='left', padx=(10, 5))
         self.date_from_var = tk.StringVar()
         ttk.Entry(filter_frame, textvariable=self.date_from_var, width=12).pack(side='left')
@@ -90,6 +88,7 @@ class CustomerListView(ttk.Frame):
         self.date_to_var = tk.StringVar()
         ttk.Entry(filter_frame, textvariable=self.date_to_var, width=12).pack(side='left')
 
+        # --- PULSANTI ---
         apply_button = ttk.Button(filter_frame, text="Mostra Clienti", command=self.on_filter_apply, style="Primary.TButton")
         apply_button.pack(side='left', padx=15)
         
@@ -98,39 +97,27 @@ class CustomerListView(ttk.Frame):
 
     def _on_product_search(self, event=None):
         search_term = self.product_search_var.get().lower()
-        self.search_results_listbox.delete(0, 'end')
         
         if not search_term:
-            self._hide_search_results()
-            return
-            
-        matches = [p['name'] for p in self.product_list if search_term in p['name'].lower()]
-        
-        if matches:
-            for item in matches:
-                self.search_results_listbox.insert('end', item)
-            self.search_results_listbox.place(x=self.product_search_entry.winfo_x(), y=self.product_search_entry.winfo_y() + self.product_search_entry.winfo_height(), width=self.product_search_entry.winfo_width())
+            # Se la ricerca è vuota, mostra tutti i prodotti
+            filtered_names = [p['name'] for p in self.product_list]
         else:
-            self._hide_search_results()
-
-    def _on_product_select(self, event=None):
-        if not self.search_results_listbox.curselection():
-            return
-        selected_index = self.search_results_listbox.curselection()[0]
-        selected_product = self.search_results_listbox.get(selected_index)
-        self.product_search_var.set(selected_product)
-        self._hide_search_results()
-
-    def _hide_search_results(self, event=None):
-        # Aggiungo un piccolo ritardo per permettere al click di registrarsi
-        self.after(200, lambda: self.search_results_listbox.place_forget())
+            # Altrimenti, filtra la lista
+            filtered_names = [p['name'] for p in self.product_list if search_term in p['name'].lower()]
+        
+        self.product_combo['values'] = filtered_names
+        # Se c'è almeno un risultato, seleziona il primo
+        if filtered_names:
+            self.product_var.set(filtered_names[0])
+        else:
+            self.product_var.set('')
 
     def _on_export_click(self):
         if not self.customer_data:
             messagebox.showwarning("Nessun Dato", "Non ci sono dati da esportare. Applica un filtro prima.")
             return
         
-        product_name = self.product_search_var.get()
+        product_name = self.product_var.get()
         if not product_name:
             messagebox.showwarning("Nessun Prodotto", "Seleziona un prodotto prima di esportare.")
             return
@@ -138,10 +125,15 @@ class CustomerListView(ttk.Frame):
         self.on_export(self.customer_data, product_name)
 
     def update_products_list(self, products: List[Dict]):
+        # Salva la lista completa e ordinata
         self.product_list = sorted(products, key=lambda p: p['name'])
+        # Popola inizialmente il combobox con tutti i prodotti
+        product_names = [p['name'] for p in self.product_list]
+        self.product_combo['values'] = product_names
 
     def get_selected_product_id(self):
-        selected_name = self.product_search_var.get()
+        selected_name = self.product_var.get()
+        # Cerca l'ID nella lista completa, non in quella filtrata
         for product in self.product_list:
             if product['name'] == selected_name:
                 return product['id']
