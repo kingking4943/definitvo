@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Export Manager per Gestionale Gitemania PORTABLE
+Export Manager per Gestionale Gitemania PORTABLE (con somma totale)
 Gestisce export automatici CSV/DOCX con dettagli viaggiatori
 Sviluppato da TechExpresso
 """
@@ -75,7 +75,7 @@ class ExportManager:
             
             if not orders:
                 result = ExportResult(success=False, error_message="Nessun ordine trovato con i filtri specificati.")
-                if self.on_export_complete: self.on_export_complete(result)
+                if self.on_export_complete: self.on_export_complete(result, "OrderExport")
                 return
 
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -133,7 +133,9 @@ class ExportManager:
             with open(file_path, 'w', newline='', encoding='utf-8-sig') as csvfile:
                 writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
                 writer.writeheader()
+                total_spent = 0.0
                 for customer in customers:
+                    total_spent += customer['total_spent']
                     writer.writerow({
                         'Nome Cliente': customer['customer_name'],
                         'Email': customer['customer_email'],
@@ -142,7 +144,14 @@ class ExportManager:
                         'Totale Speso': f"{customer['total_spent']:.2f}",
                         'Ultimo Acquisto': customer['last_purchase']
                     })
-            
+                
+                # --- AGGIUNTA RIGA TOTALI ---
+                writer.writerow({}) # Riga vuota per separazione
+                writer.writerow({
+                    'Acquisti': 'TOTALE COMPLESSIVO',
+                    'Totale Speso': f"{total_spent:,.2f}"
+                })
+
             result = ExportResult(success=True, file_name=filename, file_path=file_path, total_records=len(customers))
             if self.on_export_complete: self.on_export_complete(result, "CustomerExport")
 
