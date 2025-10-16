@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Export Manager per Gestionale Gitemania PORTABLE (con somma totale)
+Export Manager per Gestionale Gitemania PORTABLE (con somma totale su entrambi gli export)
 Gestisce export automatici CSV/DOCX con dettagli viaggiatori
 Sviluppato da TechExpresso
 """
@@ -47,15 +47,12 @@ class ExportManager:
         return []
 
     def start_scheduler(self):
-        # ... (codice invariato)
         pass
 
     def stop_scheduler(self):
-        # ... (codice invariato)
         pass
 
     def _run_scheduler(self):
-        # ... (codice invariato)
         pass
 
     def _daily_export(self):
@@ -85,7 +82,16 @@ class ExportManager:
             fieldnames = ['ID Ordine', 'Numero Ordine', 'Data Ordine', 'Cliente Principale', 'Email Cliente', 'Stato Ordine', 'Totale Ordine', 'Nome Viaggiatore', 'Cognome Viaggiatore', 'Email Viaggiatore', 'Telefono Viaggiatore', 'Partenza Viaggiatore', 'Prodotti', 'Metodo Pagamento']
             
             rows_to_write = []
+            total_spent_orders = 0.0
+            processed_orders = set()
+
             for order in orders:
+                # Aggiungi il totale dell'ordine solo una volta per ogni ID ordine
+                order_id = order.get('woo_id')
+                if order_id not in processed_orders:
+                    total_spent_orders += float(order.get('total', 0.0))
+                    processed_orders.add(order_id)
+
                 common_info = {'ID Ordine': order.get('woo_id', ''), 'Numero Ordine': order.get('order_number', ''), 'Data Ordine': order.get('date_created', ''), 'Cliente Principale': order.get('customer_name', ''), 'Email Cliente': order.get('customer_email', ''), 'Stato Ordine': order.get('status', ''), 'Totale Ordine': order.get('total', 0), 'Metodo Pagamento': order.get('payment_method_title', '')}
                 line_items = json.loads(order['line_items']) if isinstance(order.get('line_items'), str) else order.get('line_items', [])
                 common_info['Prodotti'] = '; '.join([f"{item.get('name', 'N/A')} (x{item.get('quantity', 0)})" for item in line_items])
@@ -104,7 +110,16 @@ class ExportManager:
             print(f"DEBUG: Sto per scrivere {len(rows_to_write)} righe nel file CSV...")
             
             with open(file_path, 'w', newline='', encoding='utf-8-sig') as csvfile:
-                writer = csv.DictWriter(csvfile, fieldnames=fieldnames); writer.writeheader(); writer.writerows(rows_to_write)
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(rows_to_write)
+                
+                # --- AGGIUNTA RIGA TOTALI PER EXPORT ORDINI ---
+                writer.writerow({}) # Riga vuota
+                writer.writerow({
+                    'Stato Ordine': 'TOTALE COMPLESSIVO ORDINI',
+                    'Totale Ordine': f"{total_spent_orders:,.2f}"
+                })
                 
             result = ExportResult(success=True, file_name=filename, file_path=file_path, total_records=len(rows_to_write))
             if self.on_export_complete: self.on_export_complete(result, "OrderExport")
@@ -145,8 +160,8 @@ class ExportManager:
                         'Ultimo Acquisto': customer['last_purchase']
                     })
                 
-                # --- AGGIUNTA RIGA TOTALI ---
-                writer.writerow({}) # Riga vuota per separazione
+                # Riga totali per export clienti
+                writer.writerow({})
                 writer.writerow({
                     'Acquisti': 'TOTALE COMPLESSIVO',
                     'Totale Speso': f"{total_spent:,.2f}"
